@@ -1,0 +1,867 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: |
+  This template creates a multi-AZ, multi-subnet VPC infrastructure with managed
+  NAT gateways in the public subnet for each availability zone and optionally
+  creates one or two private subnets. Launching this stack will create the
+  following resources:
+
+  1. VPC across two or three availability zones (the default is TWO)
+     a. VPC flow log that captures VPC traffic in a CloudWatch log
+  2. Optional public subnet (default is YES)
+  3. Optional private subnet (default is YES)
+     a. Optional NAT gateway (requires a public subnet, default is YES)
+     b. Optional S3 VPC endpoint (default is YES)
+  4. Optional second private subnet (default is NO)
+     a. Optional NAT gateway (requires a public subnet, default is YES)
+     b. Optional S3 VPC endpoint (default is YES)
+
+  **WARNING** This template creates AWS resources. You will be billed for the
+  AWS resources used if you create a stack from this template.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+
+    ParameterGroups:
+    - Label:
+        default: VPC Configuration
+      Parameters:
+      - VPCCIDR
+      - AvailabilityZones
+      - NumberOfAZs
+
+    - Label:
+        default: Public Subnet Configuration
+      Parameters:
+      - IncludePublicSubnet
+      - PublicSubnetName
+
+    - Label:
+        default: Private Subnet A Configuration
+      Parameters:
+      - IncludePrivateSubnet1
+      - PrivateSubnet1Name
+      - IncludePrivateSubnet1NatGateway
+      - IncludePrivateSubnet1S3Endpoint
+
+    - Label:
+        default: Private Subnet B Configuration
+      Parameters:
+      - IncludePrivateSubnet2
+      - PrivateSubnet2Name
+      - IncludePrivateSubnet2NatGateway
+      - IncludePrivateSubnet2S3Endpoint
+
+    ParameterLabels:
+      VPCCIDR:
+        default: VPC CIDR Prefix
+      AvailabilityZones:
+        default: Availability Zones
+      IncludePublicSubnet:
+        default: Include Public Subnet
+      PublicSubnetName:
+        default: Subnet Name
+      IncludePrivateSubnet1:
+        default: Include Private Subnet A
+      PrivateSubnet1Name:
+        default: Subnet Name
+      IncludePrivateSubnet1NatGateway:
+        default: Add NAT Gateway
+      PrivateSubnet2Name:
+        default: Subnet Name
+      IncludePrivateSubnet1S3Endpoint:
+        default: Add S3 Endpoint
+      IncludePrivateSubnet2:
+        default: Include Private Subnet B
+      IncludePrivateSubnet2NatGateway:
+        default: Add NAT Gateway
+      IncludePrivateSubnet2S3Endpoint:
+        default: Add S3 Endpoint
+      NumberOfAZs:
+        default: Number of Availability Zones
+
+#==================================================
+# Parameters
+#==================================================
+Parameters:
+
+  VPCCIDR:
+    AllowedPattern: "^(10\\.\\d{2})$"
+    ConstraintDescription: CIDR block parameter must be in the form 10.xx
+    Default: "10.20"
+    Description: |
+      CIDR block for the VPC. USE ONLY THIS FORMAT: 10.xx
+    Type: String
+
+  AvailabilityZones:
+    Description: |
+      List of availability zones to use for the subnets in the VPC.
+    Type: List<AWS::EC2::AvailabilityZone::Name>
+
+  NumberOfAZs:
+    AllowedValues:
+    - "2"
+    - "3"
+    Default: "2"
+    Description: |
+      Number of availability zones to use in the VPC. This must match the
+      number of selections in the "Availability Zones" parameter above.
+    Type: String
+
+  IncludePublicSubnet:
+    AllowedValues:
+    - "Yes"
+    - "No"
+    Default: "Yes"
+    Description: |
+      Include a public subnet in each availability zone. The CIDR range is /22
+      (1018 IP addresses).
+    Type: String
+
+  PublicSubnetName:
+    Type: String
+    Default: Public
+    Description: |
+      Name used for public subnet resource labels
+
+  IncludePrivateSubnet1:
+    AllowedValues:
+    - "Yes"
+    - "No"
+    Default: "Yes"
+    Description: |
+      Include a private subnet in each availability zone. If you select "No,"
+      then no other resources in this section will be created. The CIDR range is
+      /20 (4091 IP addresses).
+    Type: String
+
+  PrivateSubnet1Name:
+    Type: String
+    Default: Private1
+    Description: |
+      Name used for private subnet resource labels
+
+  IncludePrivateSubnet1NatGateway:
+    AllowedValues:
+    - "Yes"
+    - "No"
+    Default: "Yes"
+    Description: |
+      Include a NAT gateway for the private subnet in each availability zone
+      (THIS REQUIRES A PUBLIC SUBNET)
+    Type: String
+
+  IncludePrivateSubnet1S3Endpoint:
+    AllowedValues:
+    - "Yes"
+    - "No"
+    Default: "Yes"
+    Description: |
+      Include an S3 VPC endpoint for the private subnet in each availability zone
+    Type: String
+
+  IncludePrivateSubnet2:
+    AllowedValues:
+    - "Yes"
+    - "No"
+    Default: "No"
+    Description: |
+      Include a private subnet in each availability zone. If you select "No,"
+      then no other resources in this section will be created. The CIDR range is
+      /22 (1019 IP addresses).
+    Type: String
+
+  PrivateSubnet2Name:
+    Type: String
+    Default: Private2
+    Description: |
+      Name used for additional subnet resource labels
+
+  IncludePrivateSubnet2NatGateway:
+    AllowedValues:
+    - "Yes"
+    - "No"
+    Default: "No"
+    Description: |
+      Include a NAT gateway for the additional subnet in each availability zone
+      (THIS REQUIRES A PUBLIC SUBNET)
+    Type: String
+
+  IncludePrivateSubnet2S3Endpoint:
+    AllowedValues:
+    - "Yes"
+    - "No"
+    Default: "No"
+    Description: |
+      Include an S3 VPC endpoint for the additional subnet in each availability zone
+    Type: String
+
+#==================================================
+# Conditions
+#==================================================
+Conditions:
+
+  UseThreeAZs: !Equals [!Ref NumberOfAZs, "3"]
+
+  # Public subnet conditions
+  IncludePublicSubnet: !Equals [!Ref IncludePublicSubnet, "Yes"]
+  IncludePublicSubnetInThreeAZs: !And [!Condition IncludePublicSubnet, !Condition UseThreeAZs]
+
+  # Private Subnet A conditions
+  IncludePrivateSubnet1: !Equals [!Ref IncludePrivateSubnet1, "Yes"]
+  IncludePrivateSubnet1NatGateway: !And [!Condition IncludePrivateSubnet1, !Condition IncludePublicSubnet, !Equals [!Ref IncludePrivateSubnet1NatGateway, "Yes"]]
+  IncludePrivateSubnet1S3Endpoint: !And [!Condition IncludePrivateSubnet1, !Equals [!Ref IncludePrivateSubnet1S3Endpoint, "Yes"]]
+  IncludePrivateSubnet1InThreeAZs: !And [!Condition IncludePrivateSubnet1, !Condition UseThreeAZs]
+  IncludePrivateSubnet1S3EndpointInThreeAZs: !And [!Condition IncludePrivateSubnet1S3Endpoint, !Condition IncludePrivateSubnet1InThreeAZs]
+  IncludePrivateSubnet1NatGatewayInThreeAZs: !And [!Condition IncludePrivateSubnet1NatGateway, !Condition IncludePrivateSubnet1InThreeAZs]
+
+  # Private Subnet B conditions
+  IncludePrivateSubnet2: !Equals [!Ref IncludePrivateSubnet2, "Yes"]
+  IncludePrivateSubnet2NatGateway: !And [!Condition IncludePrivateSubnet2, !Condition IncludePublicSubnet, !Equals [!Ref IncludePrivateSubnet2NatGateway, "Yes"]]
+  IncludePrivateSubnet2S3Endpoint: !And [!Condition IncludePrivateSubnet2, !Equals [!Ref IncludePrivateSubnet2S3Endpoint, "Yes"]]
+  IncludePrivateSubnet2InThreeAZs: !And [!Condition IncludePrivateSubnet2, !Condition UseThreeAZs]
+  IncludePrivateSubnet2S3EndpointInThreeAZs: !And [!Condition IncludePrivateSubnet2S3Endpoint, !Condition IncludePrivateSubnet2InThreeAZs]
+  IncludePrivateSubnet2NatGatewayInThreeAZs: !And [!Condition IncludePrivateSubnet2NatGateway, !Condition IncludePrivateSubnet2InThreeAZs]
+
+  # NAT gateway and S3 endpoint conditions
+  AtLeastOneGatewayIsNeeded: !Or [!Condition IncludePrivateSubnet1NatGateway, !Condition IncludePrivateSubnet2NatGateway]
+  AtLeastOneS3EndpointIsNeeded: !Or [!Condition IncludePrivateSubnet1S3Endpoint, !Condition IncludePrivateSubnet2S3Endpoint]
+  IncludeNatGateway: !And [!Condition IncludePublicSubnet, !Condition AtLeastOneGatewayIsNeeded]
+  IncludeNatGatewayInThreeAZs: !And [!Condition IncludeNatGateway, !Condition UseThreeAZs]
+
+  # Needed for the DHCP Options set, which is configured differently for us-east-1.
+  NVirginiaRegionCondition: !Equals [!Ref "AWS::Region", "us-east-1"]
+
+#==================================================
+# Resources
+#==================================================
+Resources:
+
+  DHCPOptions:
+    Type: AWS::EC2::DHCPOptions
+    Properties:
+      DomainName:
+        Fn::If:
+        - NVirginiaRegionCondition
+        - ec2.internal
+        - !Sub ${AWS::Region}.compute.internal
+      DomainNameServers:
+      - AmazonProvidedDNS
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Sub ${VPCCIDR}.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+      - Key: Name
+        Value: !Ref "AWS::StackName"
+
+  VPCDHCPOptionsAssociation:
+    Type: AWS::EC2::VPCDHCPOptionsAssociation
+    Properties:
+      VpcId:
+        Ref: VPC
+      DhcpOptionsId: !Ref DHCPOptions
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Condition: IncludePublicSubnet
+    Properties:
+      Tags:
+      - Key: Network
+        Value: Public
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Condition: IncludePublicSubnet
+    Properties:
+      VpcId:
+        Ref: VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  #==================================================
+  # Public Subnet
+  #==================================================
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Condition: IncludePublicSubnet
+    Properties:
+      VpcId:
+        Ref: VPC
+      CidrBlock: !Sub ${VPCCIDR}.0.0/22
+      AvailabilityZone: !Select [0, !Ref AvailabilityZones]
+      Tags:
+      - Key: Name
+        Value: !Sub ${PublicSubnetName} Subnet A
+      - Key: Network
+        Value: Public
+      MapPublicIpOnLaunch: true
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Condition: IncludePublicSubnet
+    Properties:
+      VpcId:
+        Ref: VPC
+      CidrBlock: !Sub ${VPCCIDR}.4.0/22
+      AvailabilityZone: !Select [1, !Ref AvailabilityZones]
+      Tags:
+      - Key: Name
+        Value: !Sub ${PublicSubnetName} Subnet B
+      - Key: Network
+        Value: Public
+      MapPublicIpOnLaunch: true
+
+  PublicSubnet3:
+    Type: AWS::EC2::Subnet
+    Condition: IncludePublicSubnetInThreeAZs
+    Properties:
+      VpcId:
+        Ref: VPC
+      CidrBlock: !Sub ${VPCCIDR}.8.0/22
+      AvailabilityZone: !Select [2, !Ref AvailabilityZones]
+      Tags:
+      - Key: Name
+        Value: !Sub ${PublicSubnetName} Subnet C
+      - Key: Network
+        Value: Public
+      MapPublicIpOnLaunch: true
+
+  PublicSubnetRouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: IncludePublicSubnet
+    Properties:
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: !Sub ${PublicSubnetName} Subnets
+      - Key: Network
+        Value: Public
+
+  PublicSubnetRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Condition: IncludePublicSubnet
+    Properties:
+      RouteTableId: !Ref PublicSubnetRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: IncludePublicSubnet
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicSubnetRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: IncludePublicSubnet
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicSubnetRouteTable
+
+  PublicSubnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: IncludePublicSubnetInThreeAZs
+    Properties:
+      SubnetId: !Ref PublicSubnet3
+      RouteTableId: !Ref PublicSubnetRouteTable
+
+  #==================================================
+  # Private Subnet 1
+  #==================================================
+  PrivateSubnet1A:
+    Type: AWS::EC2::Subnet
+    Condition: IncludePrivateSubnet1
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Sub ${VPCCIDR}.64.0/20
+      AvailabilityZone: !Select [0, !Ref AvailabilityZones]
+      Tags:
+      - Key: Name
+        Value: !Sub ${PrivateSubnet1Name} Subnet A
+      - Key: Network
+        Value: Private
+
+  PrivateSubnet1B:
+    Type: AWS::EC2::Subnet
+    Condition: IncludePrivateSubnet1
+    Properties:
+      VpcId:
+        Ref: VPC
+      CidrBlock: !Sub ${VPCCIDR}.80.0/20
+      AvailabilityZone: !Select [1, !Ref AvailabilityZones]
+      Tags:
+      - Key: Name
+        Value: !Sub ${PrivateSubnet1Name} Subnet B
+      - Key: Network
+        Value: Private
+
+  PrivateSubnet1C:
+    Condition: IncludePrivateSubnet1InThreeAZs
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: VPC
+      CidrBlock: !Sub ${VPCCIDR}.96.0/20
+      AvailabilityZone: !Select [2, !Ref AvailabilityZones]
+      Tags:
+      - Key: Name
+        Value: !Sub ${PrivateSubnet1Name} Subnet C
+      - Key: Network
+        Value: Private
+
+  PrivateSubnet1ARouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: IncludePrivateSubnet1
+    Properties:
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: !Sub ${PrivateSubnet1Name} Subnet A
+      - Key: Network
+        Value: Private
+
+  PrivateSubnet1ARoute:
+    Type: AWS::EC2::Route
+    Condition: IncludePrivateSubnet1NatGateway
+    Properties:
+      RouteTableId:
+        Ref: PrivateSubnet1ARouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway1
+
+  PrivateSubnet1ARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: IncludePrivateSubnet1
+    Properties:
+      SubnetId:
+        Ref: PrivateSubnet1A
+      RouteTableId: !Ref PrivateSubnet1ARouteTable
+
+  PrivateSubnet1BRouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: IncludePrivateSubnet1
+    Properties:
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: !Sub ${PrivateSubnet1Name} Subnet B
+      - Key: Network
+        Value: Private
+
+  PrivateSubnet1BRoute:
+    Type: AWS::EC2::Route
+    Condition: IncludePrivateSubnet1NatGateway
+    Properties:
+      RouteTableId: !Ref PrivateSubnet1BRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway2
+
+  PrivateSubnet1BRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: IncludePrivateSubnet1
+    Properties:
+      SubnetId: !Ref PrivateSubnet1B
+      RouteTableId: !Ref PrivateSubnet1BRouteTable
+
+  PrivateSubnet1CRouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: IncludePrivateSubnet1InThreeAZs
+    Properties:
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: !Sub ${PrivateSubnet1Name} Subnet C
+      - Key: Network
+        Value: Private
+
+  PrivateSubnet1CRoute:
+    Type: AWS::EC2::Route
+    Condition: IncludePrivateSubnet1NatGatewayInThreeAZs
+    Properties:
+      RouteTableId: !Ref PrivateSubnet1CRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway3
+
+  PrivateSubnet1CRouteTableAssociation:
+    Condition: IncludePrivateSubnet1InThreeAZs
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1C
+      RouteTableId: !Ref PrivateSubnet1CRouteTable
+
+  #==================================================
+  # Private Subnet 2
+  #==================================================
+  PrivateSubnet2A:
+    Type: AWS::EC2::Subnet
+    Condition: IncludePrivateSubnet2
+    Properties:
+      VpcId:
+        Ref: VPC
+      CidrBlock: !Sub ${VPCCIDR}.192.0/22
+      AvailabilityZone: !Select [0, !Ref AvailabilityZones]
+      Tags:
+      - Key: Name
+        Value: !Sub ${PrivateSubnet2Name} Subnet A
+      - Key: Network
+        Value: Private
+
+  PrivateSubnet2B:
+    Type: AWS::EC2::Subnet
+    Condition: IncludePrivateSubnet2
+    Properties:
+      VpcId:
+        Ref: VPC
+      CidrBlock: !Sub ${VPCCIDR}.196.0/22
+      AvailabilityZone: !Select [1, !Ref AvailabilityZones]
+      Tags:
+      - Key: Name
+        Value: !Sub ${PrivateSubnet2Name} Subnet B
+      - Key: Network
+        Value: Private
+
+  PrivateSubnet2C:
+    Condition: IncludePrivateSubnet2InThreeAZs
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: VPC
+      CidrBlock: !Sub ${VPCCIDR}.200.0/22
+      AvailabilityZone: !Select [2, !Ref AvailabilityZones]
+      Tags:
+      - Key: Name
+        Value: !Sub ${PrivateSubnet2Name} Subnet C
+      - Key: Network
+        Value: Private
+
+  PrivateSubnet2ARouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: IncludePrivateSubnet2
+    Properties:
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: !Sub ${PrivateSubnet2Name} Subnet A
+      - Key: Network
+        Value: Private
+
+  PrivateSubnet2ARoute:
+    Type: AWS::EC2::Route
+    Condition: IncludePrivateSubnet2NatGateway
+    Properties:
+      RouteTableId: !Ref PrivateSubnet2ARouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway1
+
+  PrivateSubnet2ARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: IncludePrivateSubnet2
+    Properties:
+      SubnetId: !Ref PrivateSubnet2A
+      RouteTableId: !Ref PrivateSubnet2ARouteTable
+
+  PrivateSubnet2BRouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: IncludePrivateSubnet2
+    Properties:
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: !Sub ${PrivateSubnet2Name} Subnet B
+      - Key: Network
+        Value: Private
+
+  PrivateSubnet2BRoute:
+    Type: AWS::EC2::Route
+    Condition: IncludePrivateSubnet2NatGateway
+    Properties:
+      RouteTableId: !Ref PrivateSubnet2BRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway2
+
+  PrivateSubnet2BRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: IncludePrivateSubnet2
+    Properties:
+      SubnetId: !Ref PrivateSubnet2B
+      RouteTableId: !Ref PrivateSubnet2BRouteTable
+
+  PrivateSubnet1CRouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: IncludePrivateSubnet1InThreeAZs
+    Properties:
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: !Sub ${PrivateSubnet1Name} Subnet C
+      - Key: Network
+        Value: Private
+
+  PrivateSubnet1CRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: IncludePrivateSubnet1InThreeAZs
+    Properties:
+      SubnetId: !Ref PrivateSubnet1C
+      RouteTableId: !Ref PrivateSubnet1CRouteTable
+
+  PrivateSubnet2CRouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: IncludePrivateSubnet2InThreeAZs
+    Properties:
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: !Sub ${PrivateSubnet2Name} Subnet C
+      - Key: Network
+        Value: Private
+
+  PrivateSubnet2CRoute:
+    Type: AWS::EC2::Route
+    Condition: IncludePrivateSubnet2InThreeAZs
+    Properties:
+      RouteTableId: !Ref PrivateSubnet2CRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway3
+
+  PrivateSubnet2CRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: IncludePrivateSubnet2InThreeAZs
+    Properties:
+      SubnetId: !Ref PrivateSubnet2C
+      RouteTableId: !Ref PrivateSubnet2CRouteTable
+
+  #==================================================
+  # NAT Gateways
+  #==================================================
+  NAT1EIP:
+    Type: AWS::EC2::EIP
+    Condition: IncludeNatGateway
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NAT2EIP:
+    Type: AWS::EC2::EIP
+    Condition: IncludeNatGateway
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NAT3EIP:
+    Type: AWS::EC2::EIP
+    Condition: IncludeNatGatewayInThreeAZs
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NATGateway1:
+    Type: AWS::EC2::NatGateway
+    Condition: IncludeNatGateway
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      AllocationId: !GetAtt NAT1EIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+
+  NATGateway2:
+    Type: AWS::EC2::NatGateway
+    Condition: IncludeNatGateway
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      AllocationId: !GetAtt NAT2EIP.AllocationId
+      SubnetId: !Ref PublicSubnet2
+
+  NATGateway3:
+    DependsOn: VPCGatewayAttachment
+    Condition: IncludeNatGatewayInThreeAZs
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NAT3EIP.AllocationId
+      SubnetId: !Ref PublicSubnet3
+
+  #==================================================
+  # S3 Endpoint
+  #==================================================
+  S3VPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: AtLeastOneS3EndpointIsNeeded
+    Properties:
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Sid: Amazon Linux AMI Repository Access
+          Action: s3:GetObject
+          Effect: Allow
+          Principal: "*"
+          Resource:
+            - arn:aws:s3:::packages.*.amazonaws.com/*
+            - arn:aws:s3:::repo.*.amazonaws.com/*
+      RouteTableIds:
+      - !If [IncludePrivateSubnet1S3Endpoint, !Ref PrivateSubnet1ARouteTable, !Ref "AWS::NoValue"]
+      - !If [IncludePrivateSubnet1S3Endpoint, !Ref PrivateSubnet1BRouteTable, !Ref "AWS::NoValue"]
+      - !If [IncludePrivateSubnet1S3EndpointInThreeAZs, !Ref PrivateSubnet1CRouteTable, !Ref "AWS::NoValue"]
+      - !If [IncludePrivateSubnet2S3Endpoint, !Ref PrivateSubnet2ARouteTable, !Ref "AWS::NoValue"]
+      - !If [IncludePrivateSubnet2S3Endpoint, !Ref PrivateSubnet2BRouteTable, !Ref "AWS::NoValue"]
+      - !If [IncludePrivateSubnet2S3EndpointInThreeAZs, !Ref PrivateSubnet2CRouteTable, !Ref "AWS::NoValue"]
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcId:
+        Ref: VPC
+
+  #==================================================
+  # VPC Flow Logs
+  #==================================================
+  VpcFlowLogServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: AllowFlowLogs
+            Effect: Allow
+            Principal:
+                Service: vpc-flow-logs.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: cloudwatchlogsrole
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+                - logs:DescribeLogGroups
+                - logs:DescribeLogStreams
+                Effect: Allow
+                Resource: '*'
+
+  VpcFlowLog:
+    Type: AWS::EC2::FlowLog
+    Properties:
+      DeliverLogsPermissionArn: !GetAtt VpcFlowLogServiceRole.Arn
+      LogGroupName: !Sub vpc-flow-logs-${VPC}
+      ResourceId: !Ref VPC
+      ResourceType: VPC
+      TrafficType: ALL
+
+#==================================================
+# Outputs
+#==================================================
+Outputs:
+
+  VPCID:
+    Value: !Ref VPC
+    Description: VPC ID
+    Export:
+      Name: !Sub "${AWS::StackName}-VPCID"
+
+  VPCCIDR:
+    Value: !GetAtt VPC.CidrBlock
+    Description: VPC CIDR
+    Export:
+      Name: !Sub "${AWS::StackName}-VPCCIDR"
+
+  PublicSubnet1:
+    Condition: IncludePublicSubnet
+    Description: Public Subnet in Availability Zone A
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: !Sub "${AWS::StackName}-PublicSubnet1"
+
+  PublicSubnet2:
+    Condition: IncludePublicSubnet
+    Description: Public Subnet in Availability Zone B
+    Value: !Ref PublicSubnet2
+    Export:
+      Name: !Sub "${AWS::StackName}-PublicSubnet2"
+
+  PublicSubnet3:
+    Condition: IncludePublicSubnetInThreeAZs
+    Description: Public Subnet in Availability Zone C
+    Value: !Ref PublicSubnet3
+    Export:
+      Name: !Sub "${AWS::StackName}-PublicSubnet3"
+
+  PrivateSubnet1A:
+    Condition: IncludePrivateSubnet1
+    Description: Private Subnet 1 in Availability Zone A
+    Value: !Ref PrivateSubnet1A
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnet1A"
+
+  PrivateSubnet1B:
+    Condition: IncludePrivateSubnet1
+    Description: Private Subnet 1 in Availability Zone B
+    Value: !Ref PrivateSubnet1B
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnet1B"
+
+  PrivateSubnet1C:
+    Condition: IncludePrivateSubnet1InThreeAZs
+    Description: Private Subnet 1 in Availability Zone C
+    Value: !Ref PrivateSubnet1C
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnet1C"
+
+  PrivateSubnet2A:
+    Condition: IncludePrivateSubnet2
+    Description: Additional Subnet 2 in Availability Zone A
+    Value: !Ref PrivateSubnet2A
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnet2A"
+
+  PrivateSubnet2B:
+    Condition: IncludePrivateSubnet2
+    Description: Additional Subnet 2 ID in Availability Zone B
+    Value: !Ref PrivateSubnet2B
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnet2B"
+
+  PrivateSubnet2C:
+    Condition: IncludePrivateSubnet2InThreeAZs
+    Description: Additional Subnet 2 ID in Availability Zone C
+    Value: !Ref PrivateSubnet1C
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnet2C"
+
+  NAT1EIP:
+    Condition: IncludeNatGateway
+    Description: NAT 1 IP address
+    Value: !Ref NAT1EIP
+    Export:
+      Name: !Sub "${AWS::StackName}-NAT1EIP"
+
+  NAT2EIP:
+    Condition: IncludeNatGateway
+    Description: NAT 2 IP address
+    Value: !Ref NAT2EIP
+    Export:
+      Name: !Sub "${AWS::StackName}-NAT2EIP"
+
+  NAT3EIP:
+    Condition: IncludeNatGatewayInThreeAZs
+    Description: NAT 3 IP address
+    Value:
+      Ref: NAT3EIP
+    Export:
+      Name: !Sub "${AWS::StackName}-NAT3EIP"
+
+  S3VPCEndpoint:
+    Condition: AtLeastOneS3EndpointIsNeeded
+    Description: S3 VPC Endpoint
+    Value: !Ref S3VPCEndpoint
+    Export:
+      Name: !Sub "${AWS::StackName}-S3VPCEndpoint"
