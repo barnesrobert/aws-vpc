@@ -1,5 +1,4 @@
----
-AWSTemplateFormatVersion: 2010-09-09
+AWSTemplateFormatVersion: "2010-09-09"
 Description: |
   This template creates a multi-AZ, multi-subnet VPC infrastructure with managed
   NAT gateways in the public subnet for each availability zone and optionally
@@ -270,6 +269,8 @@ Resources:
     Condition: IncludePublicSubnet
     Properties:
       Tags:
+      - Key: Name
+        Value: Internet Gateway
       - Key: Network
         Value: Public
 
@@ -699,7 +700,7 @@ Resources:
     Condition: AtLeastOneS3EndpointIsNeeded
     Properties:
       PolicyDocument:
-        Version: 2012-10-17
+        Version: "2012-10-17"
         Statement:
         - Sid: Amazon Linux AMI Repository Access
           Action: s3:GetObject
@@ -726,7 +727,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
-        Version: 2012-10-17
+        Version: "2012-10-17"
         Statement:
           - Sid: AllowFlowLogs
             Effect: Allow
@@ -737,7 +738,7 @@ Resources:
       Policies:
         - PolicyName: cloudwatchlogsrole
           PolicyDocument:
-            Version: 2012-10-17
+            Version: "2012-10-17"
             Statement:
               - Action:
                 - logs:CreateLogGroup
