@@ -85,9 +85,9 @@ Metadata:
 Parameters:
 
   VPCCIDR:
-    AllowedPattern: "^(10\\.\\d{2})$"
+    AllowedPattern: "^(10\\.[0-9][0-9]*)$"
     ConstraintDescription: CIDR block parameter must be in the form 10.xx
-    Default: "10.20"
+    Default: "10.0"
     Description: |
       CIDR block for the VPC. USE ONLY THIS FORMAT: 10.xx
     Type: String
@@ -757,6 +757,29 @@ Resources:
       ResourceId: !Ref VPC
       ResourceType: VPC
       TrafficType: ALL
+
+  #==================================================
+  # Security group that will restrict traffic to
+  # the designated application port
+  #==================================================
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: restricted-access
+      GroupDescription: Restricted egress
+      VpcId: !Ref VPC
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      # Tags:
+      #   - Key: Name
+      #     Value: !Sub ${TagName} Security Group
 
 #==================================================
 # Outputs
