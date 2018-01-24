@@ -749,11 +749,17 @@ Resources:
                 Effect: Allow
                 Resource: '*'
 
+  VpcFlowLogLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName: !Sub vpc-flow-logs-${VPC}
+      RetentionInDays: 30
+
   VpcFlowLog:
     Type: AWS::EC2::FlowLog
     Properties:
       DeliverLogsPermissionArn: !GetAtt VpcFlowLogServiceRole.Arn
-      LogGroupName: !Sub vpc-flow-logs-${VPC}
+      LogGroupName: !Ref VpcFlowLogLogGroup
       ResourceId: !Ref VPC
       ResourceType: VPC
       TrafficType: ALL
@@ -777,9 +783,9 @@ Resources:
           FromPort: 443
           ToPort: 443
           CidrIp: 0.0.0.0/0
-      # Tags:
-      #   - Key: Name
-      #     Value: !Sub ${TagName} Security Group
+      Tags:
+        - Key: Name
+          Value: Restricted Access
 
 #==================================================
 # Outputs
