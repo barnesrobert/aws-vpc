@@ -10,10 +10,10 @@ Description: |
   2. Optional public subnet (default is YES)
   3. Optional private subnet (default is YES)
      a. Optional NAT gateway (requires a public subnet, default is YES)
-     b. Optional S3 VPC endpoint (default is YES)
+     b. Optional S3, SSM, and Secrets Manager VPC endpoints (default is YES)
   4. Optional second private subnet (default is NO)
      a. Optional NAT gateway (requires a public subnet, default is YES)
-     b. Optional S3 VPC endpoint (default is YES)
+     b. Optional S3, SSM, and Secrets Manager VPC endpoints (default is NO)
 
   **WARNING** This template creates AWS resources. You will be billed for the
   AWS resources used if you create a stack from this template.
@@ -41,7 +41,7 @@ Metadata:
       - IncludePrivateSubnet1
       - PrivateSubnet1Name
       - IncludePrivateSubnet1NatGateway
-      - IncludePrivateSubnet1S3Endpoint
+      - IncludePrivateSubnet1Endpoints
 
     - Label:
         default: Private Subnet B Configuration
@@ -49,7 +49,7 @@ Metadata:
       - IncludePrivateSubnet2
       - PrivateSubnet2Name
       - IncludePrivateSubnet2NatGateway
-      - IncludePrivateSubnet2S3Endpoint
+      - IncludePrivateSubnet2Endpoints
 
     ParameterLabels:
       VPCCIDR:
@@ -68,14 +68,14 @@ Metadata:
         default: Add NAT Gateway
       PrivateSubnet2Name:
         default: Subnet Name
-      IncludePrivateSubnet1S3Endpoint:
-        default: Add S3 Endpoint
+      IncludePrivateSubnet1Endpoints:
+        default: Add VPC Endpoints
       IncludePrivateSubnet2:
         default: Include Private Subnet B
       IncludePrivateSubnet2NatGateway:
         default: Add NAT Gateway
-      IncludePrivateSubnet2S3Endpoint:
-        default: Add S3 Endpoint
+      IncludePrivateSubnet2Endpoints:
+        default: Add VPC Endpoints
       NumberOfAZs:
         default: Number of Availability Zones
 
@@ -85,7 +85,7 @@ Metadata:
 Parameters:
 
   VPCCIDR:
-    AllowedPattern: "^(10\\.[0-9][0-9]*)$"
+    # AllowedPattern: "^(10\\.[0-9][0-9]*)$"
     ConstraintDescription: CIDR block parameter must be in the form 10.xx
     Default: "10.0"
     Description: |
@@ -136,7 +136,7 @@ Parameters:
 
   PrivateSubnet1Name:
     Type: String
-    Default: Private1
+    Default: Private
     Description: |
       Name used for private subnet resource labels
 
@@ -150,13 +150,15 @@ Parameters:
       (THIS REQUIRES A PUBLIC SUBNET)
     Type: String
 
-  IncludePrivateSubnet1S3Endpoint:
+  IncludePrivateSubnet1Endpoints:
     AllowedValues:
     - "Yes"
     - "No"
-    Default: "Yes"
+    Default: "No"
     Description: |
-      Include an S3 VPC endpoint for the private subnet in each availability zone
+      Include VPC endpoints for this private subnet in each availability zone. These can
+      only be included in one subnet per AZ, so choose "Yes" for either this subnet or
+      another, but not both.
     Type: String
 
   IncludePrivateSubnet2:
@@ -186,13 +188,15 @@ Parameters:
       (THIS REQUIRES A PUBLIC SUBNET)
     Type: String
 
-  IncludePrivateSubnet2S3Endpoint:
+  IncludePrivateSubnet2Endpoints:
     AllowedValues:
     - "Yes"
     - "No"
     Default: "No"
     Description: |
-      Include an S3 VPC endpoint for the additional subnet in each availability zone
+      Include VPC endpoints for this private subnet in each availability zone. These can
+      only be included in one subnet per AZ, so choose "Yes" for either this subnet or
+      another, but not both.
     Type: String
 
 #==================================================
@@ -209,22 +213,22 @@ Conditions:
   # Private Subnet A conditions
   IncludePrivateSubnet1: !Equals [!Ref IncludePrivateSubnet1, "Yes"]
   IncludePrivateSubnet1NatGateway: !And [!Condition IncludePrivateSubnet1, !Condition IncludePublicSubnet, !Equals [!Ref IncludePrivateSubnet1NatGateway, "Yes"]]
-  IncludePrivateSubnet1S3Endpoint: !And [!Condition IncludePrivateSubnet1, !Equals [!Ref IncludePrivateSubnet1S3Endpoint, "Yes"]]
   IncludePrivateSubnet1InThreeAZs: !And [!Condition IncludePrivateSubnet1, !Condition UseThreeAZs]
-  IncludePrivateSubnet1S3EndpointInThreeAZs: !And [!Condition IncludePrivateSubnet1S3Endpoint, !Condition IncludePrivateSubnet1InThreeAZs]
-  IncludePrivateSubnet1NatGatewayInThreeAZs: !And [!Condition IncludePrivateSubnet1NatGateway, !Condition IncludePrivateSubnet1InThreeAZs]
+  IncludePrivateSubnet1Endpoints: !And [!Condition IncludePrivateSubnet1, !Equals [!Ref IncludePrivateSubnet1Endpoints, "Yes"]]
+  IncludePrivateSubnet1EndpointsInThreeAZs: !And [!Condition IncludePrivateSubnet1Endpoints, !Condition IncludePrivateSubnet1InThreeAZs]
+  IncludePrivateSubnet1NatGatewayInThreeAZs: !And [!Condition IncludePrivateSubnet1NatGateway, !Condition IncludePrivateSubnet1InThreeAZs, !Condition IncludeNatGateway]
 
   # Private Subnet B conditions
   IncludePrivateSubnet2: !Equals [!Ref IncludePrivateSubnet2, "Yes"]
   IncludePrivateSubnet2NatGateway: !And [!Condition IncludePrivateSubnet2, !Condition IncludePublicSubnet, !Equals [!Ref IncludePrivateSubnet2NatGateway, "Yes"]]
-  IncludePrivateSubnet2S3Endpoint: !And [!Condition IncludePrivateSubnet2, !Equals [!Ref IncludePrivateSubnet2S3Endpoint, "Yes"]]
   IncludePrivateSubnet2InThreeAZs: !And [!Condition IncludePrivateSubnet2, !Condition UseThreeAZs]
-  IncludePrivateSubnet2S3EndpointInThreeAZs: !And [!Condition IncludePrivateSubnet2S3Endpoint, !Condition IncludePrivateSubnet2InThreeAZs]
-  IncludePrivateSubnet2NatGatewayInThreeAZs: !And [!Condition IncludePrivateSubnet2NatGateway, !Condition IncludePrivateSubnet2InThreeAZs]
+  IncludePrivateSubnet2Endpoints: !And [!Condition IncludePrivateSubnet2, !Equals [!Ref IncludePrivateSubnet2Endpoints, "Yes"]]
+  IncludePrivateSubnet2EndpointsInThreeAZs: !And [!Condition IncludePrivateSubnet2Endpoints, !Condition IncludePrivateSubnet2InThreeAZs]
+  IncludePrivateSubnet2NatGatewayInThreeAZs: !And [!Condition IncludePrivateSubnet2NatGateway, !Condition IncludePrivateSubnet2InThreeAZs, !Condition IncludeNatGateway]
 
-  # NAT gateway and S3 endpoint conditions
+  # NAT gateway and VPC endpoint conditions
   AtLeastOneGatewayIsNeeded: !Or [!Condition IncludePrivateSubnet1NatGateway, !Condition IncludePrivateSubnet2NatGateway]
-  AtLeastOneS3EndpointIsNeeded: !Or [!Condition IncludePrivateSubnet1S3Endpoint, !Condition IncludePrivateSubnet2S3Endpoint]
+  IncludePrivateSubnetEndpoints: !Or [!Condition IncludePrivateSubnet1Endpoints, !Condition IncludePrivateSubnet2Endpoints]
   IncludeNatGateway: !And [!Condition IncludePublicSubnet, !Condition AtLeastOneGatewayIsNeeded]
   IncludeNatGatewayInThreeAZs: !And [!Condition IncludeNatGateway, !Condition UseThreeAZs]
 
@@ -486,7 +490,7 @@ Resources:
 
   PrivateSubnet1CRoute:
     Type: AWS::EC2::Route
-    Condition: IncludePrivateSubnet1NatGatewayInThreeAZs
+    Condition: IncludeNatGatewayInThreeAZs #IncludePrivateSubnet1NatGatewayInThreeAZs
     Properties:
       RouteTableId: !Ref PrivateSubnet1CRouteTable
       DestinationCidrBlock: 0.0.0.0/0
@@ -629,13 +633,13 @@ Resources:
       - Key: Network
         Value: Private
 
-  PrivateSubnet2CRoute:
-    Type: AWS::EC2::Route
-    Condition: IncludePrivateSubnet2InThreeAZs
-    Properties:
-      RouteTableId: !Ref PrivateSubnet2CRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref NATGateway3
+  # PrivateSubnet2CRoute:
+  #   Type: AWS::EC2::Route
+  #   Condition: IncludePrivateSubnet2InThreeAZs
+  #   Properties:
+  #     RouteTableId: !Ref PrivateSubnet2CRouteTable
+  #     DestinationCidrBlock: 0.0.0.0/0
+  #     NatGatewayId: !Ref NATGateway3
 
   PrivateSubnet2CRouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -693,11 +697,11 @@ Resources:
       SubnetId: !Ref PublicSubnet3
 
   #==================================================
-  # S3 Endpoint
+  # VPC Endpoints
   #==================================================
   S3VPCEndpoint:
     Type: AWS::EC2::VPCEndpoint
-    Condition: AtLeastOneS3EndpointIsNeeded
+    Condition: IncludePrivateSubnetEndpoints
     Properties:
       PolicyDocument:
         Version: "2012-10-17"
@@ -710,15 +714,70 @@ Resources:
             - arn:aws:s3:::packages.*.amazonaws.com/*
             - arn:aws:s3:::repo.*.amazonaws.com/*
       RouteTableIds:
-      - !If [IncludePrivateSubnet1S3Endpoint, !Ref PrivateSubnet1ARouteTable, !Ref "AWS::NoValue"]
-      - !If [IncludePrivateSubnet1S3Endpoint, !Ref PrivateSubnet1BRouteTable, !Ref "AWS::NoValue"]
-      - !If [IncludePrivateSubnet1S3EndpointInThreeAZs, !Ref PrivateSubnet1CRouteTable, !Ref "AWS::NoValue"]
-      - !If [IncludePrivateSubnet2S3Endpoint, !Ref PrivateSubnet2ARouteTable, !Ref "AWS::NoValue"]
-      - !If [IncludePrivateSubnet2S3Endpoint, !Ref PrivateSubnet2BRouteTable, !Ref "AWS::NoValue"]
-      - !If [IncludePrivateSubnet2S3EndpointInThreeAZs, !Ref PrivateSubnet2CRouteTable, !Ref "AWS::NoValue"]
+      - !If [IncludePrivateSubnet1Endpoints, !Ref PrivateSubnet1ARouteTable, !Ref "AWS::NoValue"]
+      - !If [IncludePrivateSubnet1Endpoints, !Ref PrivateSubnet1BRouteTable, !Ref "AWS::NoValue"]
+      - !If [IncludePrivateSubnet1EndpointsInThreeAZs, !Ref PrivateSubnet1CRouteTable, !Ref "AWS::NoValue"]
+      - !If [IncludePrivateSubnet2Endpoints, !Ref PrivateSubnet2ARouteTable, !Ref "AWS::NoValue"]
+      - !If [IncludePrivateSubnet2Endpoints, !Ref PrivateSubnet2BRouteTable, !Ref "AWS::NoValue"]
+      - !If [IncludePrivateSubnet2EndpointsInThreeAZs, !Ref PrivateSubnet2CRouteTable, !Ref "AWS::NoValue"]
       ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
       VpcId:
         Ref: VPC
+
+  SystemsManagerVPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: IncludePrivateSubnetEndpoints
+    Properties:
+      VpcEndpointType: Interface
+      VpcId: !Ref VPC
+      PrivateDnsEnabled: true
+      SecurityGroupIds: 
+        - !Ref SampleSecurityGroup
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ssm
+      SubnetIds: 
+        - !If [IncludePrivateSubnet1Endpoints, !Ref PrivateSubnet1A, !Ref "AWS::NoValue"]
+        - !If [IncludePrivateSubnet1Endpoints, !Ref PrivateSubnet1B, !Ref "AWS::NoValue"]
+        - !If [IncludePrivateSubnet1EndpointsInThreeAZs, !Ref PrivateSubnet1C, !Ref "AWS::NoValue"]
+        - !If [IncludePrivateSubnet2Endpoints, !Ref PrivateSubnet2A, !Ref "AWS::NoValue"]
+        - !If [IncludePrivateSubnet2Endpoints, !Ref PrivateSubnet2B, !Ref "AWS::NoValue"]
+        - !If [IncludePrivateSubnet2EndpointsInThreeAZs, !Ref PrivateSubnet2C, !Ref "AWS::NoValue"]
+
+  SystemsManagerMessagesVPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: IncludePrivateSubnetEndpoints
+    Properties:
+      VpcEndpointType: Interface
+      VpcId: !Ref VPC
+      PrivateDnsEnabled: true
+      SecurityGroupIds: 
+        - !Ref SampleSecurityGroup
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ssmmessages
+      SubnetIds: 
+        - !If [IncludePrivateSubnet1Endpoints, !Ref PrivateSubnet1A, !Ref "AWS::NoValue"]
+        - !If [IncludePrivateSubnet1Endpoints, !Ref PrivateSubnet1B, !Ref "AWS::NoValue"]
+        - !If [IncludePrivateSubnet1EndpointsInThreeAZs, !Ref PrivateSubnet1C, !Ref "AWS::NoValue"]
+        - !If [IncludePrivateSubnet2Endpoints, !Ref PrivateSubnet2A, !Ref "AWS::NoValue"]
+        - !If [IncludePrivateSubnet2Endpoints, !Ref PrivateSubnet2B, !Ref "AWS::NoValue"]
+        - !If [IncludePrivateSubnet2EndpointsInThreeAZs, !Ref PrivateSubnet2C, !Ref "AWS::NoValue"]
+
+  SecretsManagerMessagesVPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: IncludePrivateSubnetEndpoints
+    Properties:
+      VpcEndpointType: Interface
+      VpcId: !Ref VPC
+      PrivateDnsEnabled: true
+      SecurityGroupIds: 
+        - !Ref SampleSecurityGroup
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.secretsmanager
+      SubnetIds: 
+        - !If [IncludePrivateSubnet1Endpoints, !Ref PrivateSubnet1A, !Ref "AWS::NoValue"]
+        - !If [IncludePrivateSubnet1Endpoints, !Ref PrivateSubnet1B, !Ref "AWS::NoValue"]
+        - !If [IncludePrivateSubnet1EndpointsInThreeAZs, !Ref PrivateSubnet1C, !Ref "AWS::NoValue"]
+        - !If [IncludePrivateSubnet2Endpoints, !Ref PrivateSubnet2A, !Ref "AWS::NoValue"]
+        - !If [IncludePrivateSubnet2Endpoints, !Ref PrivateSubnet2B, !Ref "AWS::NoValue"]
+        - !If [IncludePrivateSubnet2EndpointsInThreeAZs, !Ref PrivateSubnet2C, !Ref "AWS::NoValue"]
+
 
   #==================================================
   # VPC Flow Logs
@@ -764,28 +823,21 @@ Resources:
       ResourceType: VPC
       TrafficType: ALL
 
-  #==================================================
-  # Security group that will restrict traffic to
-  # the designated application port
-  #==================================================
-  InstanceSecurityGroup:
+  SampleSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: restricted-access
-      GroupDescription: Restricted egress
+      GroupDescription: Sample Security Group
       VpcId: !Ref VPC
+      SecurityGroupIngress:
+      - IpProtocol: -1
+        FromPort: -1
+        ToPort: -1
+        CidrIp: !Sub ${VPCCIDR}.0.0/16
       SecurityGroupEgress:
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: 0.0.0.0/0
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: 0.0.0.0/0
-      Tags:
-        - Key: Name
-          Value: Restricted Access
+      - IpProtocol: -1
+        FromPort: -1
+        ToPort: -1
+        CidrIp: 0.0.0.0/0
 
 #==================================================
 # Outputs
@@ -889,9 +941,3 @@ Outputs:
     Export:
       Name: !Sub "${AWS::StackName}-NAT3EIP"
 
-  S3VPCEndpoint:
-    Condition: AtLeastOneS3EndpointIsNeeded
-    Description: S3 VPC Endpoint
-    Value: !Ref S3VPCEndpoint
-    Export:
-      Name: !Sub "${AWS::StackName}-S3VPCEndpoint"
